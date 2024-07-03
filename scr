@@ -1,0 +1,478 @@
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+import pandas as pd
+import re
+import os
+import shutil
+import csv
+
+class FileProcessingUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("CSV File Processing GUI")
+
+        # Main frame for the initial options page (non-scrollable)
+        self.main_frame = ttk.Frame(self.root)
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Scrollable frame for the subsequent pages
+        self.scrollable_frame_container = ttk.Frame(self.root)
+        self.canvas = tk.Canvas(self.scrollable_frame_container)
+        self.scrollbar = ttk.Scrollbar(self.scrollable_frame_container, orient="vertical", command=self.canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.canvas)
+        
+        self.scrollable_frame.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
+        
+        self.initialize_main_page()
+
+    def initialize_main_page(self):
+        self.clear_frame()
+        self.scrollable_frame_container.pack_forget()  # Hide the scrollable frame container
+        self.main_frame.pack(fill=tk.BOTH, expand=True)  # Show the main frame
+
+        for widget in self.main_frame.winfo_children():
+            widget.destroy()
+            
+        ttk.Label(self.main_frame, text="Choose an Option:").grid(row=0, column=0, columnspan=2, pady=10)
+
+        self.option_var = tk.StringVar(value="process_single")
+        
+        ttk.Radiobutton(self.main_frame, text="Process Single File", variable=self.option_var, value="process_single").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Radiobutton(self.main_frame, text="Merge Two Files", variable=self.option_var, value="merge_files").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Button(self.main_frame, text="Next", command=self.handle_next).grid(row=3, column=0, columnspan=2, pady=20)
+
+    def handle_next(self):
+        self.main_frame.pack_forget()  # Hide the main frame
+        self.scrollable_frame_container.pack(fill=tk.BOTH, expand=True)  # Show the scrollable frame container
+        option = self.option_var.get()
+        if option == "process_single":
+            self.create_process_single_file_page()
+        elif option == "merge_files":
+            self.create_merge_file_page()
+
+    def create_process_single_file_page(self):
+        self.clear_frame()
+        
+        self.file_path_var = tk.StringVar()
+        self.delimiter_var = tk.StringVar()
+        self.replace_nan_var = tk.StringVar()
+        self.cleanup_regex_find_var = tk.StringVar()
+        self.cleanup_regex_replace_var = tk.StringVar()
+        self.trim_columns_var = tk.BooleanVar()
+        self.replace_nan_checkbox_var = tk.BooleanVar()
+        
+        self.columns_list = []
+        self.new_columns_list = []
+
+        # File selection
+        ttk.Label(self.scrollable_frame, text="File Path:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Entry(self.scrollable_frame, textvariable=self.file_path_var, width=50).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Button(self.scrollable_frame, text="Browse", command=lambda: self.browse_file(self.file_path_var)).grid(row=0, column=2, padx=5, pady=5)
+
+        # Delimiter
+        ttk.Label(self.scrollable_frame, text="Delimiter:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Entry(self.scrollable_frame, textvariable=self.delimiter_var, width=10).grid(row=1, column=1, padx=5, pady=5)
+
+        # Replace NaN
+        ttk.Checkbutton(self.scrollable_frame, text="Replace NaN with:", variable=self.replace_nan_checkbox_var).grid(row=2, column=0, padx=5, pady=5, sticky=tk.W)
+        ttk.Entry(self.scrollable_frame, textvariable=self.replace_nan_var, width=20).grid(row=2, column=1, padx=5, pady=5)
+
+        # Trim columns
+        ttk.Checkbutton(self.scrollable_frame, text="Trim Columns", variable=self.trim_columns_var).grid(row=3, column=0, padx=5, pady=5, sticky=tk.W)
+
+        # Regex cleanup
+        ttk.Label(self.scrollable_frame, text="Cleanup Regex Find:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Entry(self.scrollable_frame, textvariable=self.cleanup_regex_find_var, width=50).grid(row=4, column=1, padx=5, pady=5)
+
+        ttk.Label(self.scrollable_frame, text="Cleanup Regex Replace:").grid(row=5, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Entry(self.scrollable_frame, textvariable=self.cleanup_regex_replace_var, width=50).grid(row=5, column=1, padx=5, pady=5)
+
+        # Special operations on columns
+        ttk.Label(self.scrollable_frame, text="Special Operations on Columns").grid(row=6, column=0, columnspan=2, pady=10)
+
+        self.frame_special_operations = ttk.LabelFrame(self.scrollable_frame, text="Special Operations on Columns")
+        self.frame_special_operations.grid(row=7, column=0, columnspan=4, padx=10, pady=10, sticky="ew")
+
+        self.column_name_var = tk.StringVar()
+        self.remove_value_var = tk.StringVar()
+        self.retain_value_var = tk.StringVar()
+        self.retain_condition_var = tk.StringVar(value="and")
+        self.rename_final_col_var = tk.StringVar()
+        self.num_of_chars_var = tk.StringVar()
+        self.num_of_chars_direction_var = tk.StringVar(value="left")
+        self.anonymize_var = tk.StringVar()
+        self.change_dtype_var = tk.StringVar()
+
+        ttk.Label(self.frame_special_operations, text="Column Name:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        self.column_name_entry = ttk.Entry(self.frame_special_operations, textvariable=self.column_name_var, width=20)
+        self.column_name_entry.grid(row=0, column=1, padx=5, pady=5)
+
+        self.ignore_case_remove_var = tk.BooleanVar()
+        self.ignore_case_retain_var = tk.BooleanVar()
+
+        ttk.Checkbutton(self.frame_special_operations, text="Remove Rows if Value:", variable=tk.BooleanVar()).grid(row=1, column=0, padx=5, pady=5, sticky=tk.W)
+        self.remove_value_entry = ttk.Entry(self.frame_special_operations, textvariable=self.remove_value_var, width=20)
+        self.remove_value_entry.grid(row=1, column=1, padx=5, pady=5)
+        ttk.Checkbutton(self.frame_special_operations, text="Ignore Case", variable=self.ignore_case_remove_var).grid(row=1, column=2, padx=5, pady=5)
+
+        ttk.Checkbutton(self.frame_special_operations, text="Retain Rows if Value Contains:", variable=tk.BooleanVar()).grid(row=2, column=0, padx=5, pady=5, sticky=tk.W)
+        self.retain_value_entry = ttk.Entry(self.frame_special_operations, textvariable=self.retain_value_var, width=20)
+        self.retain_value_entry.grid(row=2, column=1, padx=5, pady=5)
+        ttk.Checkbutton(self.frame_special_operations, text="Ignore Case", variable=self.ignore_case_retain_var).grid(row=2, column=2, padx=5, pady=5)
+        ttk.Combobox(self.frame_special_operations, textvariable=self.retain_condition_var, values=["and", "or"], state="readonly").grid(row=2, column=3, padx=5, pady=5)
+
+        ttk.Checkbutton(self.frame_special_operations, text="Rename Final Column Header:", variable=tk.BooleanVar()).grid(row=3, column=0, padx=5, pady=5, sticky=tk.W)
+        self.rename_final_col_entry = ttk.Entry(self.frame_special_operations, textvariable=self.rename_final_col_var, width=20)
+        self.rename_final_col_entry.grid(row=3, column=1, padx=5, pady=5)
+
+        ttk.Checkbutton(self.frame_special_operations, text="Select Number of Characters:", variable=tk.BooleanVar()).grid(row=4, column=0, padx=5, pady=5, sticky=tk.W)
+        self.num_of_chars_entry = ttk.Entry(self.frame_special_operations, textvariable=self.num_of_chars_var, width=20)
+        self.num_of_chars_entry.grid(row=4, column=1, padx=5, pady=5)
+        ttk.Combobox(self.frame_special_operations, textvariable=self.num_of_chars_direction_var, values=["left", "right"], state="readonly").grid(row=4, column=2, padx=5, pady=5)
+
+        ttk.Checkbutton(self.frame_special_operations, text="Anonymize Column:", variable=tk.BooleanVar()).grid(row=5, column=0, padx=5, pady=5, sticky=tk.W)
+        self.anonymize_entry = ttk.Entry(self.frame_special_operations, textvariable=self.anonymize_var, width=20)
+        self.anonymize_entry.grid(row=5, column=1, padx=5, pady=5)
+
+        ttk.Checkbutton(self.frame_special_operations, text="Change Data Type:", variable=tk.BooleanVar()).grid(row=6, column=0, padx=5, pady=5, sticky=tk.W)
+        self.change_dtype_entry = ttk.Combobox(self.frame_special_operations, textvariable=self.change_dtype_var, values=["int", "float", "str", "datetime"], state="readonly")
+        self.change_dtype_entry.grid(row=6, column=1, padx=5, pady=5)
+
+        ttk.Button(self.frame_special_operations, text="Add Column", command=self.add_column).grid(row=7, column=0, columnspan=4, pady=10)
+
+        self.columns_listbox = tk.Listbox(self.frame_special_operations, selectmode=tk.SINGLE, width=60, height=5)
+        self.columns_listbox.grid(row=8, column=0, columnspan=4, padx=5, pady=5)
+        ttk.Button(self.frame_special_operations, text="Remove Column", command=self.remove_column).grid(row=9, column=0, columnspan=4, pady=10)
+
+        # Create additional columns
+        ttk.Label(self.scrollable_frame, text="Create Additional Columns").grid(row=10, column=0, columnspan=2, pady=10)
+
+        self.frame_create_columns = ttk.LabelFrame(self.scrollable_frame, text="Create Additional Columns")
+        self.frame_create_columns.grid(row=11, column=0, columnspan=4, padx=10, pady=10, sticky="ew")
+
+        self.create_col_header_var = tk.StringVar()
+        self.create_col_values_var = tk.StringVar()
+        self.concat_separator_var = tk.StringVar()
+
+        ttk.Label(self.frame_create_columns, text="New Column Header:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Entry(self.frame_create_columns, textvariable=self.create_col_header_var, width=20).grid(row=0, column=1, padx=5, pady=5)
+
+        ttk.Label(self.frame_create_columns, text="Columns to Concatenate:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Entry(self.frame_create_columns, textvariable=self.create_col_values_var, width=50).grid(row=1, column=1, padx=5, pady=5)
+
+        ttk.Label(self.frame_create_columns, text="Separator:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Entry(self.frame_create_columns, textvariable=self.concat_separator_var, width=10).grid(row=2, column=1, padx=5, pady=5)
+
+        ttk.Button(self.frame_create_columns, text="Add Column", command=self.add_new_column).grid(row=3, column=0, columnspan=4, pady=10)
+
+        self.new_columns_listbox = tk.Listbox(self.frame_create_columns, selectmode=tk.SINGLE, width=60, height=5)
+        self.new_columns_listbox.grid(row=4, column=0, columnspan=4, padx=5, pady=5)
+        ttk.Button(self.frame_create_columns, text="Remove Column", command=self.remove_new_column).grid(row=5, column=0, columnspan=4, pady=10)
+
+        # Drop duplicates
+        self.drop_dupes_key_var = tk.StringVar()
+        self.drop_dupes_checkbox_var = tk.BooleanVar()
+        ttk.Checkbutton(self.scrollable_frame, text="Drop Duplicates Based on Key", variable=self.drop_dupes_checkbox_var).grid(row=12, column=0, padx=5, pady=5, sticky=tk.W)
+        ttk.Entry(self.scrollable_frame, textvariable=self.drop_dupes_key_var, width=20).grid(row=12, column=1, padx=5, pady=5)
+
+        # Start processing button
+        ttk.Button(self.scrollable_frame, text="Start Processing", command=self.start_processing).grid(row=13, column=0, columnspan=2, pady=20)
+        ttk.Button(self.scrollable_frame, text="Back", command=self.initialize_main_page).grid(row=14, column=0, columnspan=2, pady=20)
+
+    def create_merge_file_page(self):
+        self.clear_frame()
+
+        self.master_file_path_var = tk.StringVar()
+        self.secondary_file_path_var = tk.StringVar()
+        self.master_delimiter_var = tk.StringVar()
+        self.secondary_delimiter_var = tk.StringVar()
+        self.master_key_col_var = tk.StringVar()
+        self.secondary_key_col_var = tk.StringVar()
+        self.join_type_var = tk.StringVar()
+        self.save_file_as_var = tk.StringVar()
+        self.merged_file_delimiter_var = tk.StringVar()
+
+        ttk.Label(self.scrollable_frame, text="Master File Path:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Entry(self.scrollable_frame, textvariable=self.master_file_path_var, width=50).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Button(self.scrollable_frame, text="Browse", command=lambda: self.browse_file(self.master_file_path_var)).grid(row=0, column=2, padx=5, pady=5)
+
+        ttk.Label(self.scrollable_frame, text="Secondary File Path:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Entry(self.scrollable_frame, textvariable=self.secondary_file_path_var, width=50).grid(row=1, column=1, padx=5, pady=5)
+        ttk.Button(self.scrollable_frame, text="Browse", command=lambda: self.browse_file(self.secondary_file_path_var)).grid(row=1, column=2, padx=5, pady=5)
+
+        ttk.Label(self.scrollable_frame, text="Master File Delimiter:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Entry(self.scrollable_frame, textvariable=self.master_delimiter_var, width=10).grid(row=2, column=1, padx=5, pady=5)
+
+        ttk.Label(self.scrollable_frame, text="Secondary File Delimiter:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Entry(self.scrollable_frame, textvariable=self.secondary_delimiter_var, width=10).grid(row=3, column=1, padx=5, pady=5)
+
+        ttk.Label(self.scrollable_frame, text="Master Key Column:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Entry(self.scrollable_frame, textvariable=self.master_key_col_var, width=20).grid(row=4, column=1, padx=5, pady=5)
+
+        ttk.Label(self.scrollable_frame, text="Secondary Key Column:").grid(row=5, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Entry(self.scrollable_frame, textvariable=self.secondary_key_col_var, width=20).grid(row=5, column=1, padx=5, pady=5)
+
+        ttk.Label(self.scrollable_frame, text="Join Type:").grid(row=6, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Combobox(self.scrollable_frame, textvariable=self.join_type_var, values=["left", "right", "outer", "inner"]).grid(row=6, column=1, padx=5, pady=5)
+
+        ttk.Label(self.scrollable_frame, text="Save File As:").grid(row=7, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Entry(self.scrollable_frame, textvariable=self.save_file_as_var, width=50).grid(row=7, column=1, padx=5, pady=5)
+
+        ttk.Label(self.scrollable_frame, text="Merged File Delimiter:").grid(row=8, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Entry(self.scrollable_frame, textvariable=self.merged_file_delimiter_var, width=10).grid(row=8, column=1, padx=5, pady=5)
+
+        self.remove_columns_var = tk.StringVar()
+        ttk.Label(self.scrollable_frame, text="Remove Columns After Merge (comma separated):").grid(row=9, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Entry(self.scrollable_frame, textvariable=self.remove_columns_var, width=50).grid(row=9, column=1, padx=5, pady=5)
+
+        ttk.Button(self.scrollable_frame, text="Start Merging", command=self.start_merging).grid(row=10, column=0, columnspan=2, pady=20)
+        ttk.Button(self.scrollable_frame, text="Back", command=self.initialize_main_page).grid(row=11, column=0, columnspan=2, pady=20)
+
+    def clear_frame(self):
+        for widget in self.scrollable_frame.winfo_children():
+            widget.destroy()
+
+    def browse_file(self, variable):
+        file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
+        variable.set(file_path)
+
+    def add_column(self):
+        column_name = self.column_name_var.get()
+        remove_value = self.remove_value_var.get()
+        retain_value = self.retain_value_var.get()
+        retain_condition = self.retain_condition_var.get()
+        rename_final_col = self.rename_final_col_var.get()
+        num_of_chars = self.num_of_chars_var.get()
+        num_of_chars_direction = self.num_of_chars_direction_var.get()
+        anonymize_value = self.anonymize_var.get()
+        change_dtype_value = self.change_dtype_var.get()
+        ignore_case_remove = self.ignore_case_remove_var.get()
+        ignore_case_retain = self.ignore_case_retain_var.get()
+
+        column_details = {
+            "column_name": column_name,
+            "remove_value": remove_value,
+            "retain_value": retain_value,
+            "retain_condition": retain_condition,
+            "rename_final_col": rename_final_col,
+            "num_of_chars": num_of_chars,
+            "num_of_chars_direction": num_of_chars_direction,
+            "anonymize": anonymize_value,
+            "change_dtype": change_dtype_value,
+            "ignore_case_remove": ignore_case_remove,
+            "ignore_case_retain": ignore_case_retain
+        }
+
+        self.columns_list.append(column_details)
+        self.update_columns_listbox()
+
+        self.column_name_entry.delete(0, tk.END)
+        self.remove_value_entry.delete(0, tk.END)
+        self.retain_value_entry.delete(0, tk.END)
+        self.rename_final_col_entry.delete(0, tk.END)
+        self.num_of_chars_entry.delete(0, tk.END)
+        self.anonymize_entry.delete(0, tk.END)
+        self.change_dtype_entry.delete(0, tk.END)
+
+    def remove_column(self):
+        selected_index = self.columns_listbox.curselection()
+        if selected_index:
+            del self.columns_list[selected_index[0]]
+            self.update_columns_listbox()
+
+    def update_columns_listbox(self):
+        self.columns_listbox.delete(0, tk.END)
+        for col in self.columns_list:
+            self.columns_listbox.insert(tk.END, f"Column Header: {col['column_name']} - Remove row if value: {col['remove_value']} - Retain row if value Contains {col['retain_value']} - Retain condition: {col['retain_condition']} - Final Column Name: {col['rename_final_col']} - Number of Chars to keep: {col['num_of_chars']} - Keep num of Chars Direction: {col['num_of_chars_direction']} - Show Last Digits only: {col['anonymize']} - Change Datatype to: {col['change_dtype']} - Ignore Case Remove: {col['ignore_case_remove']} - Ignore Case Retain: {col['ignore_case_retain']}")
+
+    def add_new_column(self):
+        new_col_header = self.create_col_header_var.get()
+        new_col_values = self.create_col_values_var.get().split(",")
+        concat_separator = self.concat_separator_var.get()
+
+        new_column_details = {
+            "new_col_header": new_col_header,
+            "new_col_values": new_col_values,
+            "concat_separator": concat_separator
+        }
+
+        self.new_columns_list.append(new_column_details)
+        self.update_new_columns_listbox()
+
+        self.create_col_header_var.set("")
+        self.create_col_values_var.set("")
+        self.concat_separator_var.set("")
+
+    def remove_new_column(self):
+        selected_index = self.new_columns_listbox.curselection()
+        if selected_index:
+            del self.new_columns_list[selected_index[0]]
+            self.update_new_columns_listbox()
+
+    def update_new_columns_listbox(self):
+        self.new_columns_listbox.delete(0, tk.END)
+        for col in self.new_columns_list:
+            self.new_columns_listbox.insert(tk.END, f"{col['new_col_header']} - {col['new_col_values']} - {col['concat_separator']}")
+
+    def start_processing(self):
+        file_path = self.file_path_var.get()
+        delimiter = self.delimiter_var.get() if self.delimiter_var.get() else ','
+        replace_nan_value = self.replace_nan_var.get()
+        cleanup_regex_find = self.cleanup_regex_find_var.get()
+        cleanup_regex_replace = self.cleanup_regex_replace_var.get()
+        trim_columns = self.trim_columns_var.get()
+        drop_dupes_key = self.drop_dupes_key_var.get()
+
+        if not file_path:
+            messagebox.showerror("Error", "File path is required.")
+            return
+
+        try:
+            output_directory = os.path.join(os.path.dirname(file_path), 'Output')
+            os.makedirs(output_directory, exist_ok=True)
+            destination_file = os.path.join(output_directory, os.path.basename(file_path))
+            shutil.copy2(file_path, destination_file)
+
+            if delimiter:
+                replaceDelimiter(destination_file, delimiter)
+
+            if cleanup_regex_find and cleanup_regex_replace:
+                useRegEx(destination_file, cleanup_regex_find, cleanup_regex_replace)
+
+            df = pd.read_csv(destination_file, delimiter=delimiter)
+
+            if self.replace_nan_checkbox_var.get() and replace_nan_value:
+                df = replaceNaN(df, replace_nan_value)
+
+            if trim_columns:
+                df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
+
+            for col in self.columns_list:
+                df = self.apply_column_operations(df, col)
+
+            for new_col in self.new_columns_list:
+                df = self.create_additional_column(df, new_col)
+
+            if self.drop_dupes_checkbox_var.get() and drop_dupes_key:
+                df.drop_duplicates(subset=[drop_dupes_key], inplace=True)
+
+            df.to_csv(destination_file, sep=delimiter, index=False, quoting=csv.QUOTE_ALL)
+            messagebox.showinfo("Success", f"File processed successfully! Saved at {destination_file}")
+        except Exception as e:
+            messagebox.showerror("Error", f"An error occurred: {str(e)}")
+
+    def apply_column_operations(self, df, col):
+        column_name = col["column_name"]
+        df = df.dropna(subset=[column_name])
+        df = df[df[column_name].astype(str).str.strip() != ""]
+
+        if col["remove_value"]:
+            if col["ignore_case_remove"]:
+                df = df[df[column_name].astype(str).str.lower() != col["remove_value"].lower()]
+            else:
+                df = df[df[column_name].astype(str) != col["remove_value"]]
+
+        if col["retain_value"]:
+            retain_cols = [c.strip() for c in col["retain_value"].split(',')]
+            retain_condition = col["retain_condition"]
+            retain_func = (lambda row, col_name: str(row[col_name]).lower() in str(row[column_name]).lower()) if col["ignore_case_retain"] else (lambda row, col_name: str(row[col_name]) in str(row[column_name]))
+
+            if retain_condition == "and":
+                df = df[df.apply(lambda row: all(retain_func(row, col_name) for col_name in retain_cols if col_name in df.columns), axis=1)]
+            elif retain_condition == "or":
+                df = df[df.apply(lambda row: any(retain_func(row, col_name) for col_name in retain_cols if col_name in df.columns), axis=1)]
+
+        if col["rename_final_col"]:
+            if column_name in df.columns:
+                df.rename(columns={column_name: col["rename_final_col"]}, inplace=True)
+            else:
+                raise ValueError(f"Column '{column_name}' does not exist in the dataframe.")
+
+
+        if col["num_of_chars"]:
+            num_of_chars = int(col["num_of_chars"])
+            if col["num_of_chars_direction"] == "left":
+                df[column_name] = df[column_name].str[:num_of_chars]
+            elif col["num_of_chars_direction"] == "right":
+                df[column_name] = df[column_name].str[-num_of_chars:]
+
+        if col["anonymize"]:
+            num_visible = int(col["anonymize"])
+            df[column_name] = df[column_name].apply(lambda x: '*' * (len(x) - num_visible) + x[-num_visible:])
+
+        if col["change_dtype"]:
+            df[column_name] = df[column_name].astype(col["change_dtype"])
+
+        return df
+
+    def create_additional_column(self, df, new_col):
+        new_col_header = new_col["new_col_header"]
+        new_col_values = new_col["new_col_values"]
+        concat_separator = new_col["concat_separator"]
+
+        for col in new_col_values:
+            if col not in df.columns:
+                df[col] = col
+
+        df[new_col_header] = df[new_col_values].apply(lambda row: concat_separator.join(row.values.astype(str)), axis=1)
+        return df
+
+    def start_merging(self):
+        master_file_path = self.master_file_path_var.get()
+        secondary_file_path = self.secondary_file_path_var.get()
+        master_delimiter = self.master_delimiter_var.get() if self.master_delimiter_var.get() else ','
+        secondary_delimiter = self.secondary_delimiter_var.get() if self.secondary_delimiter_var.get() else ','
+        master_key_col = self.master_key_col_var.get()
+        secondary_key_col = self.secondary_key_col_var.get()
+        join_type = self.join_type_var.get()
+        save_file_as = self.save_file_as_var.get()
+        merged_file_delimiter = self.merged_file_delimiter_var.get() if self.merged_file_delimiter_var.get() else ','
+        remove_columns = [col.strip() for col in self.remove_columns_var.get().split(",") if col.strip()]
+
+        try:
+            df1 = pd.read_csv(master_file_path, delimiter=master_delimiter)
+            df2 = pd.read_csv(secondary_file_path, delimiter=secondary_delimiter)
+
+            result = pd.merge(df1, df2, left_on=master_key_col, right_on=secondary_key_col, how=join_type)
+            if remove_columns:
+                result.drop(columns=remove_columns, inplace=True)
+
+            output_directory = os.path.join(os.path.dirname(master_file_path), 'Output')
+            os.makedirs(output_directory, exist_ok=True)
+            save_path = os.path.join(output_directory, save_file_as)
+
+            result.to_csv(save_path, sep=merged_file_delimiter, index=False, quoting=csv.QUOTE_ALL)
+            messagebox.showinfo("Success", f"Files merged successfully! Saved at {save_path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"An error occurred: {str(e)}")
+
+def replaceDelimiter(path, delimiter):
+    df = pd.read_csv(path)
+    df.to_csv(path, sep=delimiter, index=False, quoting=csv.QUOTE_ALL)
+
+def useRegEx(path, findRegex, replaceWithRegex):
+    with open(path, 'r') as file:
+        file_content = file.read()
+    modified_content = re.sub(findRegex, replaceWithRegex, file_content)
+    with open(path, 'w') as file:
+        file.write(modified_content)
+
+def replaceNaN(df, replaceValue):
+    df.fillna(replaceValue, inplace=True)
+    return df
+
+def main():
+    root = tk.Tk()
+    style = ttk.Style()
+    style.configure('Black.TButton', foreground='white', background='black')
+    app = FileProcessingUI(root)
+    root.geometry("800x600")  # Default window size
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
