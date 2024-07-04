@@ -1,0 +1,652 @@
+import sys
+from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+                             QFileDialog, QRadioButton, QButtonGroup, QGroupBox, QCheckBox, QComboBox, QListWidget,
+                             QMessageBox, QScrollArea)
+from PyQt5.QtCore import Qt
+from cryptography.fernet import Fernet
+import pandas as pd
+import re
+import os
+import shutil
+import csv
+
+class FileProcessingApp(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.columns_list_data = []
+        self.new_columns_list_data = []
+        self.setWindowTitle('GCV0 File Processor by Ibrahim v1.0')
+        self.setGeometry(100, 100, 600, 600)
+        self.initUI()
+
+    def initUI(self):
+        self.main_layout = QVBoxLayout()
+        self.setLayout(self.main_layout)
+        self.init_initial_ui()
+
+    def handle_next(self):
+        if self.process_single_radio.isChecked():
+            self.create_process_single_file_page()
+        else:
+            self.create_merge_file_page()
+
+    def create_process_single_file_page(self):
+        self.clear_layout(self.main_layout)
+
+        scroll_area = QScrollArea(self)
+        scroll_area.setWidgetResizable(True)
+        scroll_content = QWidget()
+        self.scroll_layout = QVBoxLayout(scroll_content)
+
+        file_path_layout = QHBoxLayout()
+        self.file_path_edit = QLineEdit(self)
+        self.file_path_edit.setToolTip("Select the CSV file to be processed.")
+        browse_button = QPushButton('Browse', self)
+        browse_button.clicked.connect(lambda: self.browse_file(self.file_path_edit))
+        file_path_layout.addWidget(QLabel('File Path:', self))
+        file_path_layout.addWidget(self.file_path_edit)
+        file_path_layout.addWidget(browse_button)
+
+        conversion_layout = QHBoxLayout()
+        self.conversion_combo = QComboBox(self)
+        self.conversion_combo.addItems(['Convert to CSV', 'Convert to JSON', 'Convert to HTML', 'Convert to EXCEL', 'Convert to PARQUET', 'Convert to FEATHER', 'Convert to HDF', 'Convert to PICKLE', 'Convert to TXT'])
+        conversion_layout.addWidget(QLabel('Conversion Type:', self))
+        conversion_layout.addWidget(self.conversion_combo)
+
+
+        delimiter_layout = QHBoxLayout()
+        self.delimiter_edit = QLineEdit(self)
+        self.delimiter_edit.setToolTip("Specify the delimiter that you want in the final CSV file.")
+        delimiter_layout.addWidget(QLabel('Delimiter:', self))
+        delimiter_layout.addWidget(self.delimiter_edit)
+
+        self.replace_nan_check = QCheckBox('Replace NaN with:', self)
+        self.replace_nan_edit = QLineEdit(self)
+
+        trim_columns_layout = QHBoxLayout()
+        self.trim_columns_check = QCheckBox('Trim Columns', self)
+        self.trim_columns_check.setToolTip("Check to trim whitespace from column values.")
+        trim_columns_layout.addWidget(self.trim_columns_check)
+
+        cleanup_regex_layout = QHBoxLayout()
+        self.cleanup_regex_find_edit = QLineEdit(self)
+        self.cleanup_regex_find_edit.setToolTip("Specify the regex pattern to find in the CSV file.")
+        self.cleanup_regex_replace_edit = QLineEdit(self)
+        self.cleanup_regex_replace_edit.setToolTip("Specify the replacement pattern for the regex.")
+        cleanup_regex_layout.addWidget(QLabel('Cleanup Regex Find:', self))
+        cleanup_regex_layout.addWidget(self.cleanup_regex_find_edit)
+        cleanup_regex_layout.addWidget(QLabel('Cleanup Regex Replace:', self))
+        cleanup_regex_layout.addWidget(self.cleanup_regex_replace_edit)
+
+
+        # Add Encryption Option to UI
+        encryption_layout = QHBoxLayout()
+        self.encrypt_column_check = QCheckBox('Encrypt Column:', self)
+        self.encrypt_column_edit = QLineEdit(self)
+        encryption_layout.addWidget(self.encrypt_column_check)
+        encryption_layout.addWidget(self.encrypt_column_edit)
+        # Add Decryption Option to UI
+        decryption_layout = QHBoxLayout()
+        self.decrypt_column_check = QCheckBox('Decrypt Column:', self)
+        self.decrypt_column_edit = QLineEdit(self)
+        self.key_file_edit = QLineEdit(self)
+        browse_key_button = QPushButton('Browse Key', self)
+        browse_key_button.clicked.connect(lambda: self.browse_file_key(self.key_file_edit))
+        decryption_layout.addWidget(self.decrypt_column_check)
+        decryption_layout.addWidget(self.decrypt_column_edit)
+        decryption_layout.addWidget(QLabel('Key File:', self))
+        decryption_layout.addWidget(self.key_file_edit)
+        decryption_layout.addWidget(browse_key_button)
+
+
+
+
+
+        special_ops_group = QGroupBox('Special Operations on Columns')
+        special_ops_layout = QVBoxLayout()
+
+        self.column_name_edit = QLineEdit(self)
+        self.remove_value_edit = QLineEdit(self)
+        self.retain_value_edit = QLineEdit(self)
+        self.retain_condition_combo = QComboBox(self)
+        self.retain_condition_combo.addItems(['and', 'or'])
+        self.rename_final_col_edit = QLineEdit(self)
+        self.num_of_chars_edit = QLineEdit(self)
+        self.num_of_chars_direction_combo = QComboBox(self)
+        self.num_of_chars_direction_combo.addItems(['left', 'right'])
+        self.anonymize_edit = QLineEdit(self)
+        self.change_dtype_combo = QComboBox(self)
+        self.change_dtype_combo.addItems(['str', 'int', 'float', 'datetime'])
+
+        special_ops_layout.addWidget(QLabel('Column Name:', self))
+        special_ops_layout.addWidget(self.column_name_edit)
+        special_ops_layout.addWidget(QLabel('Remove Rows if Value:', self))
+        special_ops_layout.addWidget(self.remove_value_edit)
+        self.ignore_case_remove_check = QCheckBox('Ignore Case', self)
+        special_ops_layout.addWidget(self.ignore_case_remove_check)
+        special_ops_layout.addWidget(QLabel('Retain Rows if Value Contains:', self))
+        special_ops_layout.addWidget(self.retain_value_edit)
+        self.ignore_case_retain_check = QCheckBox('Ignore Case', self)
+        special_ops_layout.addWidget(self.ignore_case_retain_check)
+        special_ops_layout.addWidget(QLabel('Retain Condition:', self))
+        special_ops_layout.addWidget(self.retain_condition_combo)
+        special_ops_layout.addWidget(QLabel('Rename Final Column Header:', self))
+        special_ops_layout.addWidget(self.rename_final_col_edit)
+        special_ops_layout.addWidget(QLabel('Select Number of Characters:', self))
+        special_ops_layout.addWidget(self.num_of_chars_edit)
+        special_ops_layout.addWidget(QLabel('Keep Characters Direction:', self))
+        special_ops_layout.addWidget(self.num_of_chars_direction_combo)
+        special_ops_layout.addWidget(QLabel('Anonymize Column:', self))
+        special_ops_layout.addWidget(self.anonymize_edit)
+        special_ops_layout.addWidget(QLabel('Change Data Type:', self))
+        special_ops_layout.addWidget(self.change_dtype_combo)
+
+        add_column_button = QPushButton('Add Column', self)
+        add_column_button.clicked.connect(self.add_column)
+
+        self.columns_list = QListWidget(self)
+
+        remove_column_button = QPushButton('Remove Column', self)
+        remove_column_button.clicked.connect(self.remove_column)
+
+        special_ops_layout.addWidget(add_column_button)
+        special_ops_layout.addWidget(self.columns_list)
+        special_ops_layout.addWidget(remove_column_button)
+        special_ops_group.setLayout(special_ops_layout)
+
+        create_additional_columns_group = QGroupBox('Create Additional Columns')
+        create_additional_columns_layout = QVBoxLayout()
+
+        self.create_col_header_edit = QLineEdit(self)
+        self.create_col_values_edit = QLineEdit(self)
+        self.concat_separator_edit = QLineEdit(self)
+
+        create_additional_columns_layout.addWidget(QLabel('New Column Header:', self))
+        create_additional_columns_layout.addWidget(self.create_col_header_edit)
+        create_additional_columns_layout.addWidget(QLabel('Columns to Concatenate:', self))
+        create_additional_columns_layout.addWidget(self.create_col_values_edit)
+        create_additional_columns_layout.addWidget(QLabel('Separator:', self))
+        create_additional_columns_layout.addWidget(self.concat_separator_edit)
+
+        add_new_column_button = QPushButton('Add Column', self)
+        add_new_column_button.clicked.connect(self.add_new_column)
+
+        self.new_columns_list = QListWidget(self)
+
+        remove_new_column_button = QPushButton('Remove Column', self)
+        remove_new_column_button.clicked.connect(self.remove_new_column)
+
+        create_additional_columns_layout.addWidget(add_new_column_button)
+        create_additional_columns_layout.addWidget(self.new_columns_list)
+        create_additional_columns_layout.addWidget(remove_new_column_button)
+        create_additional_columns_group.setLayout(create_additional_columns_layout)
+
+        self.drop_dupes_check = QCheckBox('Drop Duplicates Based on Key', self)
+        self.drop_dupes_key_edit = QLineEdit(self)
+
+        process_button = QPushButton('Start Processing', self)
+        process_button.clicked.connect(self.start_processing)
+
+        back_button = QPushButton('Back', self)
+        back_button.clicked.connect(self.handle_back)
+
+        self.scroll_layout.addLayout(file_path_layout)
+        self.scroll_layout.addLayout(conversion_layout)
+        self.scroll_layout.addLayout(delimiter_layout)
+        self.scroll_layout.addWidget(self.replace_nan_check)
+        self.scroll_layout.addWidget(self.replace_nan_edit)
+        self.scroll_layout.addLayout(trim_columns_layout)
+        self.scroll_layout.addLayout(cleanup_regex_layout)
+        self.scroll_layout.addLayout(encryption_layout)
+        self.scroll_layout.addLayout(decryption_layout)
+        self.scroll_layout.addWidget(special_ops_group)
+        self.scroll_layout.addWidget(create_additional_columns_group)
+        self.scroll_layout.addWidget(self.drop_dupes_check)
+        self.scroll_layout.addWidget(self.drop_dupes_key_edit)
+        self.scroll_layout.addWidget(process_button)
+        self.scroll_layout.addWidget(back_button)
+
+        scroll_area.setWidget(scroll_content)
+        self.main_layout.addWidget(scroll_area)
+
+    def create_merge_file_page(self):
+        self.clear_layout(self.main_layout)
+
+        scroll_area = QScrollArea(self)
+        scroll_area.setWidgetResizable(True)
+        scroll_content = QWidget()
+        self.scroll_layout = QVBoxLayout(scroll_content)
+
+        master_file_layout = QHBoxLayout()
+        self.master_file_edit = QLineEdit(self)
+        browse_button_master = QPushButton('Browse', self)
+        browse_button_master.clicked.connect(lambda: self.browse_file(self.master_file_edit))
+        master_file_layout.addWidget(QLabel('Master File Path:', self))
+        master_file_layout.addWidget(self.master_file_edit)
+        master_file_layout.addWidget(browse_button_master)
+
+        secondary_file_layout = QHBoxLayout()
+        self.secondary_file_edit = QLineEdit(self)
+        browse_button_secondary = QPushButton('Browse', self)
+        browse_button_secondary.clicked.connect(lambda: self.browse_file(self.secondary_file_edit))
+        secondary_file_layout.addWidget(QLabel('Secondary File Path:', self))
+        secondary_file_layout.addWidget(self.secondary_file_edit)
+        secondary_file_layout.addWidget(browse_button_secondary)
+
+        master_delimiter_layout = QHBoxLayout()
+        self.master_delimiter_edit = QLineEdit(self)
+        master_delimiter_layout.addWidget(QLabel('Master File Delimiter:', self))
+        master_delimiter_layout.addWidget(self.master_delimiter_edit)
+
+        secondary_delimiter_layout = QHBoxLayout()
+        self.secondary_delimiter_edit = QLineEdit(self)
+        secondary_delimiter_layout.addWidget(QLabel('Secondary File Delimiter:', self))
+        secondary_delimiter_layout.addWidget(self.secondary_delimiter_edit)
+
+        master_key_col_layout = QHBoxLayout()
+        self.master_key_col_edit = QLineEdit(self)
+        master_key_col_layout.addWidget(QLabel('Master Key Column:', self))
+        master_key_col_layout.addWidget(self.master_key_col_edit)
+
+        secondary_key_col_layout = QHBoxLayout()
+        self.secondary_key_col_edit = QLineEdit(self)
+        secondary_key_col_layout.addWidget(QLabel('Secondary Key Column:', self))
+        secondary_key_col_layout.addWidget(self.secondary_key_col_edit)
+
+        join_type_layout = QHBoxLayout()
+        self.join_type_combo = QComboBox(self)
+        self.join_type_combo.addItems(['left', 'right', 'outer', 'inner'])
+        join_type_layout.addWidget(QLabel('Join Type:', self))
+        join_type_layout.addWidget(self.join_type_combo)
+
+        save_file_as_layout = QHBoxLayout()
+        self.save_file_as_edit = QLineEdit(self)
+        save_file_as_layout.addWidget(QLabel('Save File As:', self))
+        save_file_as_layout.addWidget(self.save_file_as_edit)
+
+        merged_file_delimiter_layout = QHBoxLayout()
+        self.merged_file_delimiter_edit = QLineEdit(self)
+        merged_file_delimiter_layout.addWidget(QLabel('Merged File Delimiter:', self))
+        merged_file_delimiter_layout.addWidget(self.merged_file_delimiter_edit)
+
+        self.remove_columns_edit = QLineEdit(self)
+
+        merge_button = QPushButton('Start Merging', self)
+        merge_button.clicked.connect(self.start_merging)
+
+        back_button = QPushButton('Back', self)
+        back_button.clicked.connect(self.handle_back)
+
+        self.scroll_layout.addLayout(master_file_layout)
+        self.scroll_layout.addLayout(secondary_file_layout)
+        self.scroll_layout.addLayout(master_delimiter_layout)
+        self.scroll_layout.addLayout(secondary_delimiter_layout)
+        self.scroll_layout.addLayout(master_key_col_layout)
+        self.scroll_layout.addLayout(secondary_key_col_layout)
+        self.scroll_layout.addLayout(join_type_layout)
+        self.scroll_layout.addLayout(save_file_as_layout)
+        self.scroll_layout.addLayout(merged_file_delimiter_layout)
+        self.scroll_layout.addWidget(QLabel('Remove Columns After Merge (comma separated):', self))
+        self.scroll_layout.addWidget(self.remove_columns_edit)
+        self.scroll_layout.addWidget(merge_button)
+        self.scroll_layout.addWidget(back_button)
+
+        scroll_area.setWidget(scroll_content)
+        self.main_layout.addWidget(scroll_area)
+
+    def clear_layout(self, layout):
+        if layout is not None:
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
+                else:
+                    self.clear_layout(item.layout())
+
+    def handle_back(self):
+        self.clear_layout(self.main_layout)
+        self.init_initial_ui()
+
+    def init_initial_ui(self):
+        self.option_group = QButtonGroup(self)
+        self.process_single_radio = QRadioButton('Process Single File')
+        self.merge_files_radio = QRadioButton('Merge Two Files')
+        self.option_group.addButton(self.process_single_radio)
+        self.option_group.addButton(self.merge_files_radio)
+        self.process_single_radio.setChecked(True)
+
+        option_layout = QVBoxLayout()
+        option_layout.addWidget(self.process_single_radio)
+        option_layout.addWidget(self.merge_files_radio)
+
+        self.main_layout.addLayout(option_layout)
+
+        next_button = QPushButton('Next', self)
+        next_button.clicked.connect(self.handle_next)
+        self.main_layout.addWidget(next_button)
+
+
+    
+
+    def add_column(self):
+        column_details = {
+            "column_name": self.column_name_edit.text(),
+            "remove_value": self.remove_value_edit.text(),
+            "retain_value": self.retain_value_edit.text(),
+            "retain_condition": self.retain_condition_combo.currentText(),
+            "rename_final_col": self.rename_final_col_edit.text(),
+            "num_of_chars": self.num_of_chars_edit.text(),
+            "num_of_chars_direction": self.num_of_chars_direction_combo.currentText(),
+            "anonymize": self.anonymize_edit.text(),
+            "change_dtype": self.change_dtype_combo.currentText(),
+            "ignore_case_remove": self.ignore_case_remove_check.isChecked(),
+            "ignore_case_retain": self.ignore_case_retain_check.isChecked()
+        }
+
+        self.columns_list_data.append(column_details)
+        self.update_columns_listbox()
+
+    def remove_column(self):
+        selected_items = self.columns_list.selectedItems()
+        if not selected_items:
+            return
+        for item in selected_items:
+            index = self.columns_list.row(item)
+            del self.columns_list_data[index]
+            self.columns_list.takeItem(index)
+
+    def update_columns_listbox(self):
+        self.columns_list.clear()
+        for col in self.columns_list_data:
+            self.columns_list.addItem(
+                f"Column: {col['column_name']} - Remove: {col['remove_value']} - Retain: {col['retain_value']} - Retain Cond: {col['retain_condition']} - Rename: {col['rename_final_col']} - Chars: {col['num_of_chars']} - Direction: {col['num_of_chars_direction']} - Anonymize: {col['anonymize']} - Dtype: {col['change_dtype']} - Ignore Case Remove: {col['ignore_case_remove']} - Ignore Case Retain: {col['ignore_case_retain']}")
+
+    def add_new_column(self):
+        new_column_details = {
+            "new_col_header": self.create_col_header_edit.text(),
+            "new_col_values": self.create_col_values_edit.text().split(","),
+            "concat_separator": self.concat_separator_edit.text()
+        }
+
+        self.new_columns_list_data.append(new_column_details)
+        self.update_new_columns_listbox()
+
+    def remove_new_column(self):
+        selected_items = self.new_columns_list.selectedItems()
+        if not selected_items:
+            return
+        for item in selected_items:
+            index = self.new_columns_list.row(item)
+            del self.new_columns_list_data[index]
+            self.new_columns_list.takeItem(index)
+
+    def update_new_columns_listbox(self):
+        self.new_columns_list.clear()
+        for col in self.new_columns_list_data:
+            self.new_columns_list.addItem(
+                f"{col['new_col_header']} - {col['new_col_values']} - {col['concat_separator']}")
+
+
+    
+
+    
+    def generate_key(self, output_directory):
+        """Generate a key for encryption and decryption"""
+        key = Fernet.generate_key()
+        key_path = os.path.join(output_directory, 'key.key')
+        with open(key_path, 'wb') as key_file:
+            key_file.write(key)
+        return key, key_path
+
+    def encrypt_column(self, df, column_name, output_directory):
+        """Encrypt a specified column in the dataframe"""
+        key, key_path = self.generate_key(output_directory)
+        fernet = Fernet(key)
+        
+        # Encrypt the column
+        df[column_name] = df[column_name].astype(str).apply(lambda x: fernet.encrypt(x.encode()).decode())
+        return df, key_path
+
+
+
+    def load_key(self):
+        """Load the previously generated key"""
+        return open('key.key', 'rb').read()
+
+
+    def decrypt_column(self, df, column_name, key):
+        """Decrypt a specified column in the dataframe"""
+        fernet = Fernet(key)
+        
+        # Decrypt the column
+        df[column_name] = df[column_name].apply(lambda x: fernet.decrypt(x.encode()).decode())
+        return df
+
+    def decrypt_column_from_file(self, file_path, column_name, key_file_path):
+        key = self.load_key_from_file(key_file_path)
+        df = pd.read_csv(file_path)
+        df = self.decrypt_column(df, column_name, key)
+        return df
+
+    def load_key_from_file(self, key_file_path):
+        with open(key_file_path, 'rb') as key_file:
+            return key_file.read()
+
+    def browse_file(self, edit):
+        file_path, _ = QFileDialog.getOpenFileName(self, 'Open CSV File', '', 'CSV Files (*.csv)')
+        if file_path:
+            edit.setText(file_path)
+    
+    '''def browse_file(self, edit):
+        file_path, _ = QFileDialog.getOpenFileName(self, 'Open File', '', 'All Files (*.*)')
+        if file_path:
+            edit.setText(file_path)'''
+
+    def browse_file_key(self, edit):
+        file_path, _ = QFileDialog.getOpenFileName(self, 'Open Key File', '', 'Key Files (*.Key)')
+        if file_path:
+            edit.setText(file_path)
+
+    def start_processing(self):
+        file_path = self.file_path_edit.text()
+        delimiter = self.delimiter_edit.text() if self.delimiter_edit.text() else ','
+        replace_nan_value = self.replace_nan_edit.text()
+        cleanup_regex_find = self.cleanup_regex_find_edit.text()
+        cleanup_regex_replace = self.cleanup_regex_replace_edit.text()
+        trim_columns = self.trim_columns_check.isChecked()
+        drop_dupes_key = self.drop_dupes_key_edit.text()
+
+        if not file_path:
+            QMessageBox.critical(self, "Error", "File path is required.")
+            return
+
+        try:
+            output_directory = os.path.join(os.path.dirname(file_path), 'Output')
+            os.makedirs(output_directory, exist_ok=True)
+            destination_file = os.path.join(output_directory, os.path.basename(file_path))
+            shutil.copy2(file_path, destination_file)
+
+            if delimiter:
+                self.replace_delimiter(destination_file, delimiter)
+
+            if cleanup_regex_find and cleanup_regex_replace:
+                self.use_regex(destination_file, cleanup_regex_find, cleanup_regex_replace)
+
+            df = pd.read_csv(destination_file, delimiter=delimiter)
+
+            if self.replace_nan_check.isChecked() and replace_nan_value:
+                df = self.replaceNaN(df, replace_nan_value)
+
+            if trim_columns:
+                df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
+
+            for col in self.columns_list_data:
+                df = self.apply_column_operations(df, col)
+
+            for new_col in self.new_columns_list_data:
+                df = self.create_additional_column(df, new_col)
+
+            if self.drop_dupes_check.isChecked() and drop_dupes_key:
+                df.drop_duplicates(subset=[drop_dupes_key], inplace=True)
+
+            # Decrypt the column if specified
+            if self.decrypt_column_check.isChecked():
+                decrypt_column_name = self.decrypt_column_edit.text()
+                key_file_path = self.key_file_edit.text()
+                if decrypt_column_name and key_file_path:
+                    key = self.load_key_from_file(key_file_path)
+                    df = self.decrypt_column(df, decrypt_column_name, key)
+
+            # Encrypt the column if specified
+            if self.encrypt_column_check.isChecked():
+                encrypt_column_name = self.encrypt_column_edit.text()
+                if encrypt_column_name:
+                    df, key_path = self.encrypt_column(df, encrypt_column_name, output_directory)
+                    QMessageBox.information(self, "Success", f"Encryption key saved at {key_path}")
+
+
+            conversion_type = self.conversion_combo.currentText()
+            output_file_base = os.path.splitext(os.path.basename(file_path))[0]
+            #output_file = None
+            
+            if conversion_type == 'Convert to CSV':
+                output_file = os.path.join(output_directory, f'{output_file_base}.csv')
+                df.to_csv(output_file, sep=delimiter, index=False, quoting=csv.QUOTE_ALL)
+            elif conversion_type == 'Convert to JSON':
+                output_file = os.path.join(output_directory, f'{output_file_base}.json')
+                df.to_json(output_file, orient='records', lines=True)
+            elif conversion_type == 'Convert to HTML':
+                output_file = os.path.join(output_directory, f'{output_file_base}.html')
+                df.to_html(output_file, index=False)
+            elif conversion_type == 'Convert to EXCEL':
+                output_file = os.path.join(output_directory, f'{output_file_base}.xlsx')
+                df.to_excel(output_file, index=False)
+            elif conversion_type == 'Convert to PARQUET':
+                output_file = os.path.join(output_directory, f'{output_file_base}.parquet')
+                df.to_parquet(output_file, engine='pyarrow')
+            elif conversion_type == 'Convert to Feather':
+                output_file = os.path.join(output_directory, f'{output_file_base}.feather')
+                df.to_feather(output_file)
+            elif conversion_type == 'Convert to HDF':
+                output_file = os.path.join(output_directory, f'{output_file_base}.h5')
+                df.to_hdf(output_file, key='df', mode='w')
+            elif conversion_type == 'Convert to PICKLE':
+                output_file = os.path.join(output_directory, f'{output_file_base}.pkl')
+                df.to_pickle(output_file)
+            elif conversion_type == 'Convert to TXT':
+                output_file = os.path.join(output_directory, f'{output_file_base}.txt')
+                df.to_csv(output_file, sep='\t', index=False)
+
+            QMessageBox.information(self, "Success", f"File processed successfully! Saved at {output_file}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
+
+
+    def apply_column_operations(self, df, col):
+        column_name = col["column_name"]
+        df = df.dropna(subset=[column_name])
+        df = df[df[column_name].astype(str).str.strip() != ""]
+
+        if col["remove_value"]:
+            if col["ignore_case_remove"]:
+                df = df[df[column_name].astype(str).str.lower() != col["remove_value"].lower()]
+            else:
+                df = df[df[column_name].astype(str) != col["remove_value"]]
+
+        if col["retain_value"]:
+            retain_cols = [c.strip() for c in col["retain_value"].split(',')]
+            retain_condition = col["retain_condition"]
+            retain_func = (lambda row, col_name: str(row[col_name]).lower() in str(row[column_name]).lower()) if col["ignore_case_retain"] else (lambda row, col_name: str(row[col_name]) in str(row[column_name]))
+
+            if retain_condition == "and":
+                df = df[df.apply(lambda row: all(retain_func(row, col_name) for col_name in retain_cols if col_name in df.columns), axis=1)]
+            elif retain_condition == "or":
+                df = df[df.apply(lambda row: any(retain_func(row, col_name) for col_name in retain_cols if col_name in df.columns), axis=1)]
+
+        if col["num_of_chars"]:
+            num_of_chars = int(col["num_of_chars"])
+            if col["num_of_chars_direction"] == "left":
+                df[column_name] = df[column_name].str[:num_of_chars]
+            elif col["num_of_chars_direction"] == "right":
+                df[column_name] = df[column_name].str[-num_of_chars:]
+
+        if col["anonymize"]:
+            num_visible = int(col["anonymize"])
+            df[column_name] = df[column_name].apply(lambda x: '*' * (len(x) - num_visible) + x[-num_visible:])
+
+        if col["change_dtype"]:
+            df[column_name] = df[column_name].astype(col["change_dtype"])
+
+        if col["rename_final_col"]:
+            if column_name in df.columns:
+                df.rename(columns={column_name: col["rename_final_col"]}, inplace=True)
+            else:
+                raise ValueError(f"Column '{column_name}' does not exist in the dataframe.")
+
+        return df
+
+    def create_additional_column(self, df, new_col):
+        new_col_header = new_col["new_col_header"]
+        new_col_values = new_col["new_col_values"]
+        concat_separator = new_col["concat_separator"]
+
+        for col in new_col_values:
+            if col not in df.columns:
+                df[col] = col
+
+        df[new_col_header] = df[new_col_values].apply(lambda row: concat_separator.join(row.values.astype(str)), axis=1)
+        return df
+
+    def start_merging(self):
+        master_file_path = self.master_file_edit.text()
+        secondary_file_path = self.secondary_file_edit.text()
+        master_delimiter = self.master_delimiter_edit.text() if self.master_delimiter_edit.text() else ','
+        secondary_delimiter = self.secondary_delimiter_edit.text() if self.secondary_delimiter_edit.text() else ','
+        master_key_col = self.master_key_col_edit.text()
+        secondary_key_col = self.secondary_key_col_edit.text()
+        join_type = self.join_type_combo.currentText()
+        save_file_as = self.save_file_as_edit.text()
+        merged_file_delimiter = self.merged_file_delimiter_edit.text() if self.merged_file_delimiter_edit.text() else ','
+        remove_columns = [col.strip() for col in self.remove_columns_edit.text().split(",") if col.strip()]
+
+        try:
+            df1 = pd.read_csv(master_file_path, delimiter=master_delimiter)
+            df2 = pd.read_csv(secondary_file_path, delimiter=secondary_delimiter)
+
+            result = pd.merge(df1, df2, left_on=master_key_col, right_on=secondary_key_col, how=join_type)
+            if remove_columns:
+                result.drop(columns=remove_columns, inplace=True)
+
+            output_directory = os.path.join(os.path.dirname(master_file_path), 'Output')
+            os.makedirs(output_directory, exist_ok=True)
+            save_path = os.path.join(output_directory, save_file_as)
+
+            result.to_csv(save_path, sep=merged_file_delimiter, index=False, quoting=csv.QUOTE_ALL)
+            QMessageBox.information(self, "Success", f"Files merged successfully! Saved at {save_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
+
+    def replace_delimiter(self, path, delimiter):
+        df = pd.read_csv(path)
+        df.to_csv(path, sep=delimiter, index=False, quoting=csv.QUOTE_ALL)
+
+    def use_regex(self, path, find_regex, replace_with_regex):
+        with open(path, 'r') as file:
+            file_content = file.read()
+        modified_content = re.sub(find_regex, replace_with_regex, file_content)
+        with open(path, 'w') as file:
+            file.write(modified_content)
+
+    def replaceNaN(self, df, replaceValue):
+        df.fillna(replaceValue, inplace=True)
+        return df
+
+def main():
+    app = QApplication(sys.argv)
+    ex = FileProcessingApp()
+    ex.show()
+    sys.exit(app.exec_())
+
+if __name__ == '__main__':
+    main()
