@@ -1,0 +1,6 @@
+Tool,Description,Advantages,Disadvantages
+Data Loader,Client application for bulk data import/export with GUI and command-line interfaces.,"Handles large volumes of data, up to millions of records; Supports complex data operations; Available for free.",Requires installation; Can be complex for non-technical users.
+Data Import Wizard,"Built-in Salesforce tool for simple data import, suitable for smaller volumes.",Easy to use; Integrated within Salesforce; Free to use; Suitable for non-technical users.,Limited to smaller data volumes; Less flexible than Data Loader.
+Salesforce CLI (SFDX),Command-line interface for advanced scripting and automation of data operations.,Advanced scripting and automation; Suitable for developers and DevOps; Free to use.,Requires command-line knowledge; More suited for technical users.
+Workbench,"Web-based toolset for data management, querying, and manipulation.",Versatile toolset; Supports various data operations; Free to access online.,Requires understanding of Salesforce APIs; Can be overwhelming for non-technical users.
+Dataloader.io (Free Tier),Web-based tool offering a free tier with limited functionality and volume.,User-friendly interface; Quick setup; Suitable for smaller data loads.,Limited functionality in the free tier; Requires upgrade for larger volumes.
